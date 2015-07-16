@@ -1,0 +1,113 @@
+This is a very rough benchmarking tool to measure the performance of table lookups in an lwAFTR subscriber table.
+
+Usage: luajit process_binding.lua num_table_entries ports_per_host [repetitions]
+
+The benchmark makes a hash table indexed by IPv4 address, and then does a naive linear search through the port ranges.
+To avoid being optimized away, it fetches the end port and adds it to a cumulative total; in real code, fetching
+the IPv6 address associated is more likely, but this should not make a meaningful difference - it's a matter of returning the 3rd rather than 1st element of the same table.
+
+The goal is >= 10 million lookups per second (aka <= 100ns per lookup). The naive code seems to manage that fairly well, though something more clever than a linear search through the port ranges is called for if there are somewhere between 30 and 100+ port ranges per typical IP; at 30, it still appears to be acceptable.
+
+With >= ~3 million entries in the table, running out of memory can be an issue; tables that size call for a bit more cleverness as well.
+
+The following numbers are from an Intel(R) Core(TM) i7-4771 CPU @ 3.50GHz with 8192 KB L3 cache; this is a Haswell machine.
+
+The tested workloads are large enough that they are guaranteed to exceed the capacity of the L3 cache of this machine.
+
+------------------------------
+1 million entries:
+% luajit process_binding.lua 1000000 1 >> README
+Hashify done
+Starting benchmark
+Elapsed time: 2, lookups/sec: 9,179,828
+cumulative	0
+The above workload is interesting, because it can't take advantage of reading the same IPv4 address from the hash table repeatedly, because it has no repeated IPv4 addresses. 1 million other entries are read between each of the 20 reads of hash[a_specific_ip]. It has approximately acceptable performance despite that; it's basically guaranteed to be hitting RAM a lot.
+
+% luajit process_binding.lua 1000000 5 >> README
+Hashify done
+Starting benchmark
+Elapsed time: 0, lookups/sec: 20,185,830
+cumulative	0
+
+%  luajit process_binding.lua 1000000 30 >> README
+Hashify done
+Starting benchmark
+Elapsed time: 1, lookups/sec: 12,106,247
+cumulative	400
+
+% luajit process_binding.lua 3000000 50 >> README
+Hashify done
+Starting benchmark
+Elapsed time: 6, lookups/sec: 9,105,895
+cumulative      0
+
+% luajit process_binding.lua 1000000 100 >> README
+Hashify done
+Starting benchmark
+Elapsed time: 3, lookups/sec: 6,461,106
+cumulative	0
+
+% luajit process_binding.lua 1000000 1000 >> README
+Hashify done
+Starting benchmark
+Elapsed time: 24, lookups/sec: ,806,177
+cumulative	0
+
+While the printed elapsed times look a bit odd, they're ok, and the numbers aren't an artifact of their granularity.
+ % luajit process_binding.lua 3000000 50 200
+ Hashify done
+ Starting benchmark
+ Elapsed time: 65, lookups/sec: 9,148,431
+ cumulative      0
+9,148,431 is extremely similar to the 9,105,895 with the default 20 reps, above.
+
+------------------------------
+
+More than a million entries
+
+% luajit process_binding.lua 3000000 5 >> README
+Hashify done
+Starting benchmark
+Elapsed time: 4, lookups/sec: 14,551,158
+cumulative	0
+
+% luajit process_binding.lua 400000 5 >> README
+Hashify done
+Starting benchmark
+Elapsed time: 0, lookups/sec: 20,431,252
+cumulative	0
+
+% luajit process_binding.lua 400000 30 >> README
+Hashify done
+Starting benchmark
+Elapsed time: 0, lookups/sec: 12,217,072
+cumulative	400
+
+% luajit process_binding.lua 400000 100 >> README
+Hashify done
+Starting benchmark
+Elapsed time: 1, lookups/sec: 6,338,722
+cumulative	0
+
+------------------------------
+I run out of memory on the hashing step when trying 3 million entries with 1 portrange per host, or 5 million entries with any number of portranges per host.
+
+Interestingly enough, smaller workloads that presumably fit in L3 cache aren't faster. This 10,000 port, 30 port-range per port gives similar numbers; here, it's run with 1000 repetitions, but the results are essentially the same at the default 20:
+
+% luajit process_binding.lua 10000 30 1000 >> README
+Hashify done
+Starting benchmark
+Elapsed time: 0, lookups/sec: 11,801,828
+cumulative	0
+
+% luajit process_binding.lua 1000 30 1000 >> README
+Hashify done
+Starting benchmark
+Elapsed time: 0, lookups/sec: 9,856,140
+cumulative	0
+
+% luajit process_binding.lua 100 25 100000 >> README
+Hashify done
+Starting benchmark
+Elapsed time: 0, lookups/sec: 13,612,424
+cumulative	0
